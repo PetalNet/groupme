@@ -125,5 +125,7 @@ func (gc *GMClient) topicPushResync(msg groupme.PushMessage) *simplevent.ChatRes
 // A topic may be created without a message on any subscribed channel. Refresh
 // sequentially, independent of reconnects, with no per-message inventory scans.
 func (gc *GMClient) refreshTopics(ctx context.Context) {
-	gc.queueChats(ctx, gc.listGroupChats(ctx, true))
+	// Existing rooms receive metadata only; reconnect catches up messages.
+	// New rooms still get initial history through ChatInfo.CanBackfill.
+	gc.queueChats(ctx, gc.listGroupChats(ctx, true), false)
 }

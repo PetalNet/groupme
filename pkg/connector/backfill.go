@@ -135,8 +135,8 @@ func (gc *GMClient) FetchMessages(ctx context.Context, params bridgev2.FetchMess
 				hasMore = false
 				continue
 			}
-			// Mutation notices advance cursors without consuming visible history.
-			if msg.Event != nil && (msg.Event.Type == "message.update" || msg.Event.Type == "message.deleted") {
+			// Edit records advance native cursors without consuming visible history.
+			if msg.Event != nil && msg.Event.Type == "message.update" {
 				continue
 			}
 			messages = append(messages, msg)

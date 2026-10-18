@@ -4,6 +4,7 @@ import (
 	"context"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/bridgeconfig"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"net/http"
 	"testing"
@@ -42,5 +43,25 @@ func TestSpaceIdentityMatchesFrameworkParentKey(t *testing.T) {
 		if key != expected {
 			t.Fatalf("split=%v: got %+v want %+v", split, key, expected)
 		}
+	}
+}
+
+func TestPeriodicTopicRefreshDoesNotRepeatForwardBackfill(t *testing.T) {
+	gc, chat := discoverTestTopic(t, nil)
+	periodic := gc.chatResync(chat, false)
+	for _, lastID := range []networkid.MessageID{"101", "103"} {
+		needed, err := periodic.CheckNeedsBackfill(context.Background(), &database.Message{ID: lastID})
+		if err != nil || needed {
+			t.Fatalf("metadata refresh requested history: %v %v", needed, err)
+		}
+	}
+	reconnect := gc.chatResync(chat, true)
+	needed, err := reconnect.CheckNeedsBackfill(context.Background(), &database.Message{ID: "101"})
+	if err != nil || !needed {
+		t.Fatalf("reconnect lost catch-up: %v %v", needed, err)
+	}
+	info, err := periodic.GetChatInfo(context.Background(), testMatrixText(chat.portalKey.ID).Portal)
+	if err != nil || !info.CanBackfill {
+		t.Fatalf("new topic lost initial history: %+v %v", info, err)
 	}
 }
