@@ -34,22 +34,13 @@ type nativeChat struct {
 	portalKey networkid.PortalKey
 	latestID  groupme.ID
 	dmPartner *groupme.User
+	chatInfo  func(context.Context, *bridgev2.Portal) (*bridgev2.ChatInfo, error)
 }
 
 // A failed listing does not prevent returning the other conversation type.
 func (gc *GMClient) listChats(ctx context.Context) []nativeChat {
 	log := zerolog.Ctx(ctx)
-	var chats []nativeChat
-
-	groups, err := gc.Client.IndexAllGroups(ctx)
-	if err != nil {
-		log.Err(err).Msg("Failed to list GroupMe groups")
-	}
-	for _, group := range groups {
-		if group != nil && len(group.ID) > 0 {
-			chats = append(chats, nativeChat{portalKey: gc.portalKeyForGroup(group.ID), latestID: group.Messages.LastMessageID})
-		}
-	}
+	chats := gc.listGroupChats(ctx, false)
 
 	dms, err := gc.Client.IndexAllChats(ctx)
 	if err != nil {
@@ -75,35 +66,18 @@ func (gc *GMClient) catchUp(ctx context.Context) []nativeChat {
 	ctx = gc.UserLogin.Log.With().Str("action", "catch up").Logger().WithContext(ctx)
 	chats := gc.listChats(ctx)
 	zerolog.Ctx(ctx).Info().Int("chat_count", len(chats)).Msg("Syncing GroupMe chats")
+	gc.queueChats(ctx, chats, true)
+	return chats
+}
+
+func (gc *GMClient) queueChats(ctx context.Context, chats []nativeChat, checkBackfill bool) {
 	for _, chat := range chats {
 		if ctx.Err() != nil {
-			return nil
+			return
 		}
-		getChatInfo := gc.GetChatInfo
-		if chat.dmPartner != nil {
-			getChatInfo = func(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
-				return gc.dmChatInfo(ctx, chat.dmPartner.ID, chat.dmPartner), nil
-			}
-		}
-		gc.Main.br.QueueRemoteEvent(gc.UserLogin, &simplevent.ChatResync{
-			EventMeta: simplevent.EventMeta{
-				Type:         bridgev2.RemoteEventChatResync,
-				PortalKey:    chat.portalKey,
-				CreatePortal: true,
-				Timestamp:    time.Now(),
-			},
-			GetChatInfoFunc: getChatInfo,
-			CheckNeedsBackfillFunc: func(ctx context.Context, latest *database.Message) (bool, error) {
-				latest, err := gc.nearestNativeMessage(ctx, chat.portalKey, latest, false)
-				if err != nil {
-					return false, err
-				}
-				return chat.latestID != "" && (latest == nil || compareMessageIDs(chat.latestID, ParseMessageID(latest.ID)) > 0), nil
-			},
-		})
+		gc.Main.br.QueueRemoteEvent(gc.UserLogin, gc.chatResync(chat, checkBackfill))
 		gc.subscribeToChat(chat.portalKey.ID)
 	}
-	return chats
 }
 
 // Appservices never receive chat-view notifications. Keep the native group and
@@ -138,6 +112,9 @@ func (gc *GMClient) refreshRecentReactions(ctx context.Context, chats []nativeCh
 			return
 		}
 		portalID := chat.portalKey.ID
+		if kind, _ := ParsePortalID(portalID); kind == PortalTypeSpace {
+			continue
+		}
 		// Groups support 100 messages; DMs return their native page of 20.
 		messages, err := gc.fetchMessagePage(ctx, portalID, "", "", 100)
 		if err != nil {
@@ -156,5 +133,36 @@ func (gc *GMClient) refreshRecentReactions(ctx context.Context, chats []nativeCh
 			}
 		}
 		zerolog.Ctx(ctx).Debug().Str("portal_id", string(portalID)).Int("message_count", len(messages)).Msg("Refreshed recent GroupMe reactions")
+	}
+}
+
+func (gc *GMClient) chatResync(chat nativeChat, checkBackfill bool) *simplevent.ChatResync {
+	getChatInfo := chat.chatInfo
+	if getChatInfo == nil {
+		getChatInfo = gc.GetChatInfo
+	}
+	if chat.dmPartner != nil {
+		getChatInfo = func(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
+			return gc.dmChatInfo(ctx, chat.dmPartner.ID, chat.dmPartner), nil
+		}
+	}
+	return &simplevent.ChatResync{
+		EventMeta: simplevent.EventMeta{
+			Type:         bridgev2.RemoteEventChatResync,
+			PortalKey:    chat.portalKey,
+			CreatePortal: true,
+			Timestamp:    time.Now(),
+		},
+		GetChatInfoFunc: getChatInfo,
+		CheckNeedsBackfillFunc: func(ctx context.Context, latest *database.Message) (bool, error) {
+			if !checkBackfill {
+				return false, nil
+			}
+			latest, err := gc.nearestNativeMessage(ctx, chat.portalKey, latest, false)
+			if err != nil {
+				return false, err
+			}
+			return chat.latestID != "" && (latest == nil || compareMessageIDs(chat.latestID, ParseMessageID(latest.ID)) > 0), nil
+		},
 	}
 }

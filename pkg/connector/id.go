@@ -33,6 +33,10 @@ func MakeGroupPortalID(groupID groupme.ID) networkid.PortalID {
 	return networkid.PortalID(fmt.Sprintf("group:%s", groupID))
 }
 
+func MakeSpacePortalID(parent groupme.ID) networkid.PortalID {
+	return networkid.PortalID("space:" + parent)
+}
+
 func MakeDMPortalID(otherUserID groupme.ID) networkid.PortalID {
 	return networkid.PortalID(fmt.Sprintf("dm:%s", otherUserID))
 }
@@ -76,4 +80,16 @@ func MakeMessageID(gmid groupme.ID) networkid.MessageID {
 
 func ParseMessageID(id networkid.MessageID) groupme.ID {
 	return groupme.ID(id)
+}
+
+func nativeNumericID(id groupme.ID) bool {
+	if id == "" {
+		return false
+	}
+	for _, c := range id {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }

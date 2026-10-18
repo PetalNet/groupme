@@ -21,6 +21,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -153,7 +154,17 @@ func (gc *GMClient) runSession(ctx context.Context) {
 	if err := sub.SubscribeToUser(me.ID, gc.Meta.Token); err != nil {
 		gc.UserLogin.Log.Err(err).Msg("Failed to subscribe to GroupMe push channel")
 	}
-	<-ctx.Done()
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+topicLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break topicLoop
+		case <-ticker.C:
+			gc.refreshTopics(ctx)
+		}
+	}
 	gc.pushMu.Lock()
 	gc.push = nil
 	gc.pushTransport = nil
@@ -192,6 +203,14 @@ func (gc *GMClient) IsThisUser(ctx context.Context, userID networkid.UserID) boo
 }
 
 // portalKeyForGroup returns the portal key for a GroupMe group chat.
+func (gc *GMClient) portalKeyForSpace(parent groupme.ID) networkid.PortalKey {
+	key := networkid.PortalKey{ID: MakeSpacePortalID(parent)}
+	if gc.Main.br != nil && gc.Main.br.Config.SplitPortals {
+		key.Receiver = gc.UserLogin.ID
+	}
+	return key
+}
+
 func (gc *GMClient) portalKeyForGroup(groupID groupme.ID) networkid.PortalKey {
 	return networkid.PortalKey{
 		ID:       MakeGroupPortalID(groupID),
