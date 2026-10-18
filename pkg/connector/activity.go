@@ -140,6 +140,13 @@ func (gc *GMClient) handleActivity(ctx context.Context, msg groupme.PushMessage)
 }
 
 func (gc *GMClient) parseActivity(msg groupme.PushMessage) ([]bridgev2.RemoteEvent, bool) {
+	if evt, handled := gc.parseMessageDeletion(msg); handled {
+		if evt != nil {
+			return []bridgev2.RemoteEvent{evt}, true
+		}
+		return nil, true
+	}
+
 	typ, _ := msg.Data()["type"].(string)
 	if typ != "typing" && typ != "read_receipt.create" && typ != "read_receipt.sync" && typ != "chat.deleted" && typ != "membership.destroy" {
 		return nil, false
