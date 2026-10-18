@@ -44,6 +44,13 @@ func (gc *GMClient) HandleError(err error) {
 }
 
 func (gc *GMClient) HandleTextMessage(msg groupme.Message) {
+	if evt, handled := gc.systemMessageDeletion(&msg); handled {
+		if evt != nil {
+			gc.Main.br.QueueRemoteEvent(gc.UserLogin, evt)
+		}
+		return
+	}
+
 	if gc.handleMessageUpdate(msg) {
 		return
 	}

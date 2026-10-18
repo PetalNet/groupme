@@ -24,7 +24,7 @@ func (historyMatrix) GhostIntent(networkid.UserID) bridgev2.MatrixAPI { return &
 type historyIntent struct{ bridgev2.MatrixAPI }
 
 func TestFetchMessagesChronologicalResponse(t *testing.T) {
-	for _, portalID := range []networkid.PortalID{"group:7", "dm:9"} {
+	for _, portalID := range []networkid.PortalID{"group:7", "group:88", "dm:9"} {
 		for _, forward := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/forward=%v", portalID, forward), func(t *testing.T) {
 				ctx := context.Background()
@@ -40,11 +40,15 @@ func TestFetchMessagesChronologicalResponse(t *testing.T) {
 				}
 				portal := testMatrixText(portalID).Portal
 				portal.Bridge = br
+				if portalID == "group:88" {
+					portal.ParentKey = networkid.PortalKey{ID: "space:7", Receiver: "20"}
+				}
 				mockGroupMe(t, func(r *http.Request) (int, string) {
-					if forward && portalID == "group:7" && r.URL.Query().Get("after_id") != "100" {
+					if forward && portalID != "dm:9" && r.URL.Query().Get("after_id") != "100" {
 						t.Fatal("forward group history must use after_id anchor")
 					}
-					field, identity := "messages", `"group_id":"7"`
+					_, nativeID := ParsePortalID(portalID)
+					field, identity := "messages", fmt.Sprintf(`"group_id":%q`, nativeID)
 					if portalID == "dm:9" {
 						field, identity = "direct_messages", `"chat_id":"9+20"`
 					}
@@ -69,10 +73,10 @@ func TestFetchMessagesChronologicalResponse(t *testing.T) {
 					t.Fatalf("history is not chronological: %v", ids)
 				}
 				wantCursor := networkid.PaginationCursor("101")
-				if forward && portalID == "group:7" {
+				if forward && portalID != "dm:9" {
 					wantCursor = ""
 				}
-				if resp.Forward != forward || resp.Cursor != wantCursor || resp.HasMore != (portalID == "group:7") {
+				if resp.Forward != forward || resp.Cursor != wantCursor || resp.HasMore != (portalID != "dm:9") {
 					t.Fatalf("incorrect pagination response: %+v", resp)
 				}
 			})

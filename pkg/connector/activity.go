@@ -129,6 +129,9 @@ func (gc *GMClient) syncReadCheckpoints(ctx context.Context) {
 // These native events have no groupme-lib handler. Decode only their typed
 // fields and keep routing, room creation, and Matrix delivery in bridgev2.
 func (gc *GMClient) handleActivity(ctx context.Context, msg groupme.PushMessage) bool {
+	if resync := gc.topicPushResync(msg); resync != nil {
+		gc.Main.br.QueueRemoteEvent(gc.UserLogin, resync)
+	}
 	events, handled := gc.parseActivity(msg)
 	for _, evt := range events {
 		gc.Main.br.QueueRemoteEvent(gc.UserLogin, evt)
@@ -137,6 +140,13 @@ func (gc *GMClient) handleActivity(ctx context.Context, msg groupme.PushMessage)
 }
 
 func (gc *GMClient) parseActivity(msg groupme.PushMessage) ([]bridgev2.RemoteEvent, bool) {
+	if evt, handled := gc.parseMessageDeletion(msg); handled {
+		if evt != nil {
+			return []bridgev2.RemoteEvent{evt}, true
+		}
+		return nil, true
+	}
+
 	typ, _ := msg.Data()["type"].(string)
 	if typ != "typing" && typ != "read_receipt.create" && typ != "read_receipt.sync" && typ != "chat.deleted" && typ != "membership.destroy" {
 		return nil, false

@@ -34,22 +34,13 @@ type nativeChat struct {
 	portalKey networkid.PortalKey
 	latestID  groupme.ID
 	dmPartner *groupme.User
+	chatInfo  func(context.Context, *bridgev2.Portal) (*bridgev2.ChatInfo, error)
 }
 
 // A failed listing does not prevent returning the other conversation type.
 func (gc *GMClient) listChats(ctx context.Context) []nativeChat {
 	log := zerolog.Ctx(ctx)
-	var chats []nativeChat
-
-	groups, err := gc.Client.IndexAllGroups(ctx)
-	if err != nil {
-		log.Err(err).Msg("Failed to list GroupMe groups")
-	}
-	for _, group := range groups {
-		if group != nil && len(group.ID) > 0 {
-			chats = append(chats, nativeChat{portalKey: gc.portalKeyForGroup(group.ID), latestID: group.Messages.LastMessageID})
-		}
-	}
+	chats := gc.listGroupChats(ctx, false)
 
 	dms, err := gc.Client.IndexAllChats(ctx)
 	if err != nil {
@@ -75,11 +66,19 @@ func (gc *GMClient) catchUp(ctx context.Context) []nativeChat {
 	ctx = gc.UserLogin.Log.With().Str("action", "catch up").Logger().WithContext(ctx)
 	chats := gc.listChats(ctx)
 	zerolog.Ctx(ctx).Info().Int("chat_count", len(chats)).Msg("Syncing GroupMe chats")
+	gc.queueChats(ctx, chats)
+	return chats
+}
+
+func (gc *GMClient) queueChats(ctx context.Context, chats []nativeChat) {
 	for _, chat := range chats {
 		if ctx.Err() != nil {
-			return nil
+			return
 		}
-		getChatInfo := gc.GetChatInfo
+		getChatInfo := chat.chatInfo
+		if getChatInfo == nil {
+			getChatInfo = gc.GetChatInfo
+		}
 		if chat.dmPartner != nil {
 			getChatInfo = func(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
 				return gc.dmChatInfo(ctx, chat.dmPartner.ID, chat.dmPartner), nil
@@ -103,7 +102,6 @@ func (gc *GMClient) catchUp(ctx context.Context) []nativeChat {
 		})
 		gc.subscribeToChat(chat.portalKey.ID)
 	}
-	return chats
 }
 
 // Appservices never receive chat-view notifications. Keep the native group and
@@ -138,6 +136,9 @@ func (gc *GMClient) refreshRecentReactions(ctx context.Context, chats []nativeCh
 			return
 		}
 		portalID := chat.portalKey.ID
+		if kind, _ := ParsePortalID(portalID); kind == PortalTypeSpace {
+			continue
+		}
 		// Groups support 100 messages; DMs return their native page of 20.
 		messages, err := gc.fetchMessagePage(ctx, portalID, "", "", 100)
 		if err != nil {
@@ -148,6 +149,13 @@ func (gc *GMClient) refreshRecentReactions(ctx context.Context, chats []nativeCh
 			gc.Main.br.QueueRemoteEvent(gc.UserLogin, evt)
 		}
 		for _, msg := range slices.Backward(messages) {
+			if evt, handled := gc.systemMessageDeletion(msg); handled {
+				if evt != nil {
+					gc.Main.br.QueueRemoteEvent(gc.UserLogin, evt)
+				}
+				continue
+			}
+
 			if msg.Event != nil && msg.Event.Type == "message.update" {
 				continue
 			}

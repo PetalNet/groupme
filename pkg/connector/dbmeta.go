@@ -38,6 +38,7 @@ type PortalType string
 const (
 	PortalTypeGroup PortalType = "group"
 	PortalTypeDM    PortalType = "dm"
+	PortalTypeSpace PortalType = "space"
 )
 
 // PortalMetadata is stored on the bridgev2 Portal row.
