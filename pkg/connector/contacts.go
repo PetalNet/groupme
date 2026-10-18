@@ -27,7 +27,7 @@ func (gc *GMClient) GetContactList(ctx context.Context) ([]*bridgev2.ResolveIden
 		}
 		contacts = append(contacts, &bridgev2.ResolveIdentifierResponse{
 			UserID:   MakeUserID(user.ID),
-			UserInfo: &bridgev2.UserInfo{Name: ptr.Ptr(user.Name), Avatar: gc.avatarIfSet(ctx, user.AvatarURL)},
+			UserInfo: &bridgev2.UserInfo{Name: ptr.NonZero(user.Name), Avatar: gc.avatarIfSet(ctx, user.AvatarURL)},
 		})
 	}
 	return contacts, nil
