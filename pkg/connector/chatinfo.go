@@ -114,11 +114,12 @@ func (gc *GMClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*
 		}
 		roomType := database.RoomTypeDefault
 		return &bridgev2.ChatInfo{
-			Name:    ptr.Ptr(group.Name),
-			Topic:   ptr.Ptr(group.Description),
-			Avatar:  gc.avatarFor(ctx, group.ImageURL),
-			Members: members,
-			Type:    &roomType,
+			CanBackfill: true,
+			Name:        ptr.Ptr(group.Name),
+			Topic:       ptr.Ptr(group.Description),
+			Avatar:      gc.avatarFor(ctx, group.ImageURL),
+			Members:     members,
+			Type:        &roomType,
 		}, nil
 	case PortalTypeDM:
 		// Existing DM partners may be absent from personal contacts.
@@ -163,7 +164,7 @@ func (gc *GMClient) dmChatInfo(ctx context.Context, gmid groupme.ID, partner *gr
 	// Supply the profile from the DM listing to avoid a contacts-only lookup.
 	var otherInfo *bridgev2.UserInfo
 	if partner != nil {
-		otherInfo = &bridgev2.UserInfo{Name: ptr.Ptr(name), Avatar: gc.avatarIfSet(ctx, avatarURL)}
+		otherInfo = &bridgev2.UserInfo{Name: ptr.NonZero(name), Avatar: gc.avatarIfSet(ctx, avatarURL)}
 	}
 	members := &bridgev2.ChatMemberList{
 		IsFull: true,
@@ -188,6 +189,7 @@ func (gc *GMClient) dmChatInfo(ctx context.Context, gmid groupme.ID, partner *gr
 		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to fetch GroupMe message request status")
 	}
 	return &bridgev2.ChatInfo{
+		CanBackfill:    true,
 		MessageRequest: messageRequest,
 		Name:           ptr.Ptr(name),
 		Avatar:         gc.avatarIfSet(ctx, avatarURL),
@@ -205,7 +207,7 @@ func (gc *GMClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*br
 	for _, u := range relations {
 		if u != nil && u.ID == gmid {
 			return &bridgev2.UserInfo{
-				Name:   ptr.Ptr(u.Name),
+				Name:   ptr.NonZero(u.Name),
 				Avatar: gc.avatarIfSet(ctx, u.AvatarURL),
 			}, nil
 		}
@@ -214,7 +216,7 @@ func (gc *GMClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*br
 		me, err := gc.Client.MyUser(ctx)
 		if err == nil && me != nil && me.ID == gmid {
 			return &bridgev2.UserInfo{
-				Name:   ptr.Ptr(me.Name),
+				Name:   ptr.NonZero(me.Name),
 				Avatar: gc.avatarIfSet(ctx, me.AvatarURL),
 			}, nil
 		}
