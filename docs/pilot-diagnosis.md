@@ -62,3 +62,16 @@ If a specific room is later proven to have an unrecoverable historical gap or or
 The pinned connector already maps `group.Description` to a non-nil `ChatInfo.Topic` (`chatinfo.go:118` at c7e93c7, line 119 on this branch), including an empty description so intentional clearing can propagate. `HandleGroupTopic` (`handlegroupme.go:430`) queues a full GetChatInfo resync.
 
 Read-only checks found 29 group portals, four with nonempty bridge topics. All four exactly match the current `m.room.topic` state in Synapse. No topic contents were printed. This rules out a universally missing mapping, but does not explain the reported empty room. Follow-up needs the affected group/room and a comparison between its current native description, bridge metadata, and Matrix state, plus metadata-refresh errors. Without that evidence, changing the mapping would duplicate existing behavior or risk treating an intentional empty description as stale data. No production change or live resync was performed for this report.
+
+## Follow-up: room avatars visible, ghost avatars missing in the client
+
+Room and ghost avatars both use `avatarFor` -> `groupmeext.DownloadImage` -> `downloadMediaURL` with no token (`chatinfo.go:34`, `message.go:17`). There is no separate user-image authentication path to correct.
+
+Additional read-only checks found:
+
+- 257 of 398 user ghosts have uploaded avatars, matching 257 nonempty Synapse global profile avatars. Another 136 ghosts have no stored native avatar URL; five have a URL but no successful upload.
+- Among 48 DM portals, 33 partners have uploaded avatars, 14 have no stored native avatar URL, and one has a failed upload.
+- Of 751 current joined ghost memberships in Synapse, 501 belong to profiles with avatars. All 501 membership avatar URLs exactly match their global profiles; none is empty.
+- All five failing native URLs returned 403 for the original URL and each `.avatar`, `.large`, and `.preview` suffix, without credentials. No URL contents or images were printed.
+
+The 403 failures are real but cannot explain a client-wide absence of ghost avatars. No authentication or URL-rewrite fix is supported by these checks. Follow-up needs an affected DM/ghost and client: compare its native profile URL, current Matrix membership/profile avatar, and the client's media fetch/cache behavior. The missing stored native URLs also need comparison against current provider profile data before assuming those people have no avatar. No credential-based retry, live profile refresh, deployment, or speculative avatar fallback was performed.
